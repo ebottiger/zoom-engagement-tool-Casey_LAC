@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTS Attendance Report Builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #F5F2EC;
+    --surface: #FFFFFF;
+    --ink: #1A1A1A;
+    --ink-muted: #6B6B6B;
+    --accent: #E8441A;
+    --accent-light: #FFF0ED;
+    --border: #E2DDD6;
+    --success: #1A6B3A;
+    --success-bg: #EBF7F0;
+    --warn: #8B5E00;
+    --warn-bg: #FFF8E6;
+    --mono: 'DM Mono', monospace;
+    --display: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--display);
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  header {
+    background: var(--ink);
+    color: white;
+    padding: 18px 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header .logo {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: white;
+  }
+  header .logo span { color: var(--accent); }
+  header .subtitle {
+    font-size: 12px;
+    font-family: var(--mono);
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-left: auto;
+  }
+
+  .steps-bar {
+    background: var(--ink);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding: 0 40px;
+    display: flex;
+    gap: 0;
+  }
+  .step-tab {
+    padding: 12px 24px;
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.35);
+    cursor: default;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .step-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .step-tab.done {
+    color: rgba(255,255,255,0.6);
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 40px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 32px;
+    margin-bottom: 24px;
+  }
+
+  .panel-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .panel-desc {
+    font-size: 13px;
+    color: var(--ink-muted);
+    font-family: var(--mono);
+    margin-bottom: 24px;
+  }
+
+  .upload-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 4px;
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-light);
+  }
+  .upload-zone.filled {
+    border-color: var(--success);
+    background: var(--success-bg);
+    border-style: solid;
+  }
+  .upload-zone input[type=file] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .upload-icon { font-size: 28px; margin-bottom: 8px; }
+  .upload-label {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .upload-hint {
+    font-size: 11px;
+    color: var(--ink-muted);
+    font-family: var(--mono);
+  }
+  .upload-filename {
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--success);
+    font-weight: 500;
+    margin-top: 6px;
+    word-break: break-all;
+  }
+
+  .upload-full { grid-column: 1 / -1; }
+
+  .settings-row {
+    display: flex;
+    gap: 24px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 180px;
+  }
+  .field-group label {
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--ink-muted);
+  }
+  input[type=number], input[type=text] {
+    font-family: var(--mono);
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 9px 12px;
+    background: var(--bg);
+    color: var(--ink);
+    width: 100%;
+    transition: border-color 0.2s;
+  }
+  input[type=number]:focus, input[type=text]:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 24px;
+    border-radius: 3px;
+    border: none;
+    cursor: pointer;
+    font-family: var(--display);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.15s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: #C93610; }
+  .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-secondary {
+    background: var(--ink);
+    color: white;
+  }
+  .btn-secondary:hover { background: #333; }
+  .btn-outline {
+    background: transparent;
+    color: var(--ink);
+    border: 1.5px solid var(--border);
+  }
+  .btn-outline:hover { border-color: var(--ink); }
+
+  /* MATCHING SECTION */
+  .match-table-wrapper {
+    overflow-x: auto;
+    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    background: var(--ink);
+    color: white;
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #FAFAF8; }
+  tr.unmatched td { background: #FFF8F6; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+  .badge-complete { background: var(--success-bg); color: var(--success); }
+  .badge-noshow { background: #FEF0F0; color: #C0392B; }
+  .badge-auto { background: var(--accent-light); color: var(--accent); }
+  .badge-manual { background: var(--warn-bg); color: var(--warn); }
+  .badge-unknown { background: #F0F0F0; color: #555; }
+  .badge-nomatch { background: #FFF8E6; color: var(--warn); }
+
+  select {
+    font-family: var(--mono);
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 5px 8px;
+    background: var(--bg);
+    color: var(--ink);
+    cursor: pointer;
+    min-width: 200px;
+    max-width: 280px;
+  }
+  select:focus { outline: none; border-color: var(--accent); }
+  select.matched-select { border-color: var(--success); background: var(--success-bg); }
+
+  .section-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 28px 0 20px;
+    color: var(--ink-muted);
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  .section-divider::before, .section-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .alert {
+    padding: 12px 16px;
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: var(--mono);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .alert-warn { background: var(--warn-bg); color: var(--warn); border-left: 3px solid #F4A900; }
+  .alert-info { background: var(--accent-light); color: var(--accent); border-left: 3px solid var(--accent); }
+  .alert-success { background: var(--success-bg); color: var(--success); border-left: 3px solid var(--success); }
+
+  .summary-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .summary-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px;
+  }
+  .summary-card .num {
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .summary-card .lbl {
+    font-size: 10px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--ink-muted);
+  }
+  .num-accent { color: var(--accent); }
+  .num-success { color: var(--success); }
+  .num-warn { color: var(--warn); }
+
+  .step-section { display: none; }
+  .step-section.active { display: block; }
+
+  .action-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 24px;
+  }
+
+  .day-tabs {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    width: fit-content;
+  }
+  .day-tab {
+    padding: 8px 20px;
+    font-size: 12px;
+    font-family: var(--mono);
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+    transition: all 0.15s;
+    background: var(--bg);
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .day-tab:last-child { border-right: none; }
+  .day-tab.active {
+    background: var(--ink);
+    color: white;
+  }
+  .day-tab.loaded { color: var(--success); font-weight: 600; }
+  .day-tab.active.loaded { background: var(--success); color: white; }
+
+  .preview-table td { font-size: 12px; font-family: var(--mono); }
+  .preview-table td:first-child { font-family: var(--display); font-weight: 600; font-size: 13px; }
+
+  .loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(26,26,26,0.7);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    color: white;
+    font-family: var(--display);
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .loading-overlay.show { display: flex; }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255,255,255,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .match-score-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .match-score-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--success);
+    transition: width 0.3s;
+  }
+
+  .unknown-section {
+    margin-top: 24px;
+    border: 1px solid #F4A900;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .unknown-header {
+    background: var(--warn-bg);
+    color: var(--warn);
+    padding: 10px 16px;
+    font-size: 12px;
+    font-family: var(--mono);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .tooltip-text {
+    font-size: 11px;
+    color: var(--ink-muted);
+    font-family: var(--mono);
+    margin-top: 4px;
+  }
+
+  #preview-section { display: none; }
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingMsg">Processing...</div>
+</div>
+
+<header>
+  <div class="logo">BTS<span>.</span></div>
+  <div style="color:rgba(255,255,255,0.6); font-size:14px; font-weight:600;">Attendance Report Builder</div>
+  <div class="subtitle">ExxonMobil · Virtual Workshops</div>
+</header>
+
+<div class="steps-bar">
+  <div class="step-tab active" id="tab1">01 · Upload Files</div>
+  <div class="step-tab" id="tab2">02 · Match Attendees</div>
+  <div class="step-tab" id="tab3">03 · Review & Export</div>
+</div>
+
+<div class="container">
+
+  <!-- STEP 1: UPLOAD -->
+  <div class="step-section active" id="step1">
+    <div class="panel">
+      <div class="panel-title">Upload Your Files</div>
+      <div class="panel-desc">Upload the client attendance template and one Zoom CSV per workshop day. You can also upload an optional roster file with expected attendees.</div>
+
+      <div class="upload-grid">
+        <div class="upload-zone" id="zone-template">
+          <input type="file" id="file-template" accept=".xlsx,.xls" onchange="handleFileUpload('template', this)">
+          <div class="upload-icon">📋</div>
+          <div class="upload-label">Client Template</div>
+          <div class="upload-hint">.xlsx — participant names + day columns</div>
+          <div class="upload-filename" id="fn-template"></div>
+        </div>
+        <div class="upload-zone" id="zone-roster">
+          <input type="file" id="file-roster" accept=".xlsx,.xls,.csv" onchange="handleFileUpload('roster', this)">
+          <div class="upload-icon">👥</div>
+          <div class="upload-label">Roster File <span style="font-weight:400;color:var(--ink-muted)">(optional)</span></div>
+          <div class="upload-hint">.xlsx or .csv — expected attendees with emails</div>
+          <div class="upload-filename" id="fn-roster"></div>
+        </div>
+      </div>
+
+      <div class="section-divider">Zoom CSV Reports — One Per Day</div>
+
+      <div class="upload-grid" id="zoom-upload-grid">
+        <!-- dynamically populated after template is loaded -->
+        <div class="upload-zone" id="zone-zoom-0">
+          <input type="file" id="file-zoom-0" accept=".csv" onchange="handleZoomUpload(0, this)">
+          <div class="upload-icon">🎥</div>
+          <div class="upload-label" id="zoom-label-0">Day 1 Zoom Report</div>
+          <div class="upload-hint">.csv — raw Zoom participant report</div>
+          <div class="upload-filename" id="fn-zoom-0"></div>
+        </div>
+        <div class="upload-zone" id="zone-zoom-1">
+          <input type="file" id="file-zoom-1" accept=".csv" onchange="handleZoomUpload(1, this)">
+          <div class="upload-icon">🎥</div>
+          <div class="upload-label" id="zoom-label-1">Day 2 Zoom Report</div>
+          <div class="upload-hint">.csv — raw Zoom participant report</div>
+          <div class="upload-filename" id="fn-zoom-1"></div>
+        </div>
+        <div class="upload-zone" id="zone-zoom-2">
+          <input type="file" id="file-zoom-2" accept=".csv" onchange="handleZoomUpload(2, this)">
+          <div class="upload-icon">🎥</div>
+          <div class="upload-label" id="zoom-label-2">Day 3 Zoom Report</div>
+          <div class="upload-hint">.csv — raw Zoom participant report</div>
+          <div class="upload-filename" id="fn-zoom-2"></div>
+        </div>
+        <div class="upload-zone" id="zone-zoom-3">
+          <input type="file" id="file-zoom-3" accept=".csv" onchange="handleZoomUpload(3, this)">
+          <div class="upload-icon">🎥</div>
+          <div class="upload-label" id="zoom-label-3">Day 4 Zoom Report</div>
+          <div class="upload-hint">.csv — raw Zoom participant report</div>
+          <div class="upload-filename" id="fn-zoom-3"></div>
+        </div>
+      </div>
+
+      <div class="section-divider">Session Settings</div>
+
+      <div class="settings-row">
+        <div class="field-group">
+          <label>Minimum Attendance (minutes)</label>
+          <input type="number" id="minMinutes" value="10" min="1" max="300" placeholder="e.g. 10">
+          <div class="tooltip-text">Attendees below this threshold are marked No Show</div>
+        </div>
+        <div class="field-group">
+          <label>Session Title (for export filename)</label>
+          <input type="text" id="sessionTitle" value="ExxonMobil Attendance" placeholder="e.g. ExxonMobil Leader as Coach">
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="proceedToMatching()" id="btn-proceed">
+          Continue to Matching →
+        </button>
+        <div style="font-size:12px; font-family:var(--mono); color:var(--ink-muted)">Template + at least 1 Zoom report required</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: MATCHING -->
+  <div class="step-section" id="step2">
+    <div class="panel">
+      <div class="panel-title">Match Zoom Names to Participants</div>
+      <div class="panel-desc">Review auto-matched names and manually assign any unknowns. Zoom display names don't always match the client roster.</div>
+
+      <div class="summary-cards" id="matchSummary"></div>
+
+      <div id="matchAlerts"></div>
+
+      <div class="day-tabs" id="matchDayTabs"></div>
+
+      <div id="matchTableArea"></div>
+
+      <div id="unknownSection"></div>
+
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="proceedToReview()">Review & Export →</button>
+        <button class="btn btn-outline" onclick="goToStep(1)">← Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: REVIEW & EXPORT -->
+  <div class="step-section" id="step3">
+    <div class="panel">
+      <div class="panel-title">Review & Export</div>
+      <div class="panel-desc">Final attendance report ready for client delivery. Review below then download as Excel.</div>
+
+      <div id="reviewAlerts"></div>
+
+      <div class="summary-cards" id="reviewSummary"></div>
+
+      <div id="reviewTableArea"></div>
+
+      <div id="unknownFlagSection"></div>
+
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="exportExcel()" id="btn-export">
+          ⬇ Download Excel Report
+        </button>
+        <button class="btn btn-outline" onclick="goToStep(2)">← Back to Matching</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let state = {
+  template: null,       // parsed template data
+  roster: null,         // optional roster
+  zoomReports: {},      // day index -> parsed zoom data
+  participants: [],     // [{name, email, rowIndex, dayResults:{}}]
+  dayLabels: [],        // ['Day 1', 'Day 2', ...]
+  dayCount: 0,
+  minMinutes: 10,
+  // matching
+  zoomAttendees: {},    // day -> [{zoomName, email, duration, matchedTo, matchType}]
+  currentMatchDay: 0,
+};
+
+// ─── FILE HANDLING ────────────────────────────────────────────────────────────
+function handleFileUpload(type, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const zone = document.getElementById('zone-' + type);
+  const fn = document.getElementById('fn-' + type);
+  zone.classList.add('filled');
+  fn.textContent = '✓ ' + file.name;
+
+  if (type === 'template') {
+    parseTemplate(file);
+  } else if (type === 'roster') {
+    parseRoster(file);
+  }
+}
+
+function handleZoomUpload(dayIdx, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const zone = document.getElementById('zone-zoom-' + dayIdx);
+  const fn = document.getElementById('fn-zoom-' + dayIdx);
+  zone.classList.add('filled');
+  fn.textContent = '✓ ' + file.name;
+  parseZoomCSV(dayIdx, file);
+}
+
+function parseTemplate(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wb = XLSX.read(e.target.result, {type:'binary'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+    // Find header row (has "User Name" or similar)
+    let headerRow = rows[0];
+    let dayLabels = [];
+    let nameCol = -1, emailCol = -1;
+    let dayCols = [];
+
+    headerRow.forEach((h, i) => {
+      if (!h) return;
+      const s = String(h).toLowerCase().replace(/\r?\n/g,' ').trim();
+      if (s.includes('user name')) nameCol = i;
+      if (s.includes('user email')) emailCol = i;
+      const dayMatch = s.match(/^day\s*(\d+)/i);
+      if (dayMatch) {
+        dayCols.push({col: i, label: 'Day ' + dayMatch[1]});
+      }
+    });
+
+    // fallback: find by column position if not found
+    if (nameCol === -1) nameCol = 5;
+    if (emailCol === -1) emailCol = 6;
+    if (dayCols.length === 0) {
+      // guess 4 columns after email
+      for (let i = 0; i < 4; i++) dayCols.push({col: emailCol+1+i, label:'Day '+(i+1)});
+    }
+
+    state.dayLabels = dayCols.map(d => d.label);
+    state.dayCount = dayCols.length;
+    state.templateDayCols = dayCols;
+    state.templateNameCol = nameCol;
+    state.templateEmailCol = emailCol;
+    state.templateRows = rows;
+    state.templateWB = wb;
+    state.templateWS = ws;
+    state.templateFile = file;
+
+    // Parse participants
+    state.participants = [];
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || !row[nameCol]) continue;
+      state.participants.push({
+        name: String(row[nameCol]).trim(),
+        email: row[emailCol] ? String(row[emailCol]).trim() : '',
+        rowIndex: r,
+        dayResults: {}
+      });
+    }
+
+    // Update zoom upload labels
+    dayCols.forEach((d, i) => {
+      const lbl = document.getElementById('zoom-label-' + i);
+      if (lbl) lbl.textContent = d.label + ' Zoom Report';
+    });
+
+    // Show/hide upload zones based on day count
+    for (let i = 0; i < 4; i++) {
+      const zone = document.getElementById('zone-zoom-' + i);
+      if (zone) zone.style.display = i < state.dayCount ? '' : 'none';
+    }
+
+    console.log('Template parsed:', state.participants.length, 'participants,', state.dayCount, 'days');
+  };
+  reader.readAsBinaryString(file);
+}
+
+function parseRoster(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    let wb;
+    if (file.name.endsWith('.csv')) {
+      const text = e.target.result;
+      wb = XLSX.read(text, {type:'string'});
+    } else {
+      wb = XLSX.read(e.target.result, {type:'binary'});
+    }
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    // Try to find name/email columns
+    const header = rows[0].map(h => String(h||'').toLowerCase());
+    let nc = header.findIndex(h => h.includes('name'));
+    let ec = header.findIndex(h => h.includes('email'));
+    if (nc === -1) nc = 0;
+    if (ec === -1) ec = 1;
+    state.roster = rows.slice(1).map(r => ({
+      name: String(r[nc]||'').trim(),
+      email: String(r[ec]||'').trim()
+    })).filter(r => r.name);
+    console.log('Roster parsed:', state.roster.length, 'entries');
+  };
+  if (file.name.endsWith('.csv')) reader.readAsText(file);
+  else reader.readAsBinaryString(file);
+}
+
+function parseZoomCSV(dayIdx, file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.split('\n');
+    // Find the data rows — Zoom CSVs have a meta row, then blank, then participant rows
+    // Row 0: Topic, ID, Host...
+    // Row 1: Name (original name), Email, Total duration...
+    // Row 2+: participants
+    let headerLineIdx = -1;
+    lines.forEach((line, i) => {
+      if (line.includes('Total duration') || line.includes('total duration')) headerLineIdx = i;
+    });
+    if (headerLineIdx === -1) headerLineIdx = 1;
+
+    const metaLine = lines[0].split(',');
+    let meetingDuration = null;
+    // Try to parse meeting duration from meta row
+    const durationField = metaLine.find(f => !isNaN(parseInt(f.trim())) && parseInt(f.trim()) > 30 && parseInt(f.trim()) < 1440);
+    if (durationField) meetingDuration = parseInt(durationField.trim());
+
+    const attendees = [];
+    for (let i = headerLineIdx + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const parts = line.split(',').map(s => s.trim().replace(/^"|"$/g,''));
+      const zoomName = parts[0];
+      const email = parts[1] || '';
+      const duration = parseInt(parts[2]) || 0;
+      const isGuest = (parts[3] || '').toLowerCase().trim() === 'yes';
+      if (!zoomName || zoomName.toLowerCase() === 'name (original name)') continue;
+      attendees.push({ zoomName, email, duration, isGuest });
+    }
+
+    state.zoomReports[dayIdx] = { attendees, meetingDuration, file };
+    console.log('Zoom day', dayIdx, ':', attendees.length, 'attendees');
+  };
+  reader.readAsText(file);
+}
+
+// ─── NAME MATCHING ────────────────────────────────────────────────────────────
+function normalizeName(s) {
+  return s.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractTokens(s) {
+  return normalizeName(s).split(' ').filter(t => t.length > 1);
+}
+
+// Extract name from parentheses patterns like "Dan - AUS Melbourne (Grogan, Daniel P)"
+function extractParenName(s) {
+  const m = s.match(/\(([^)]+)\)/);
+  return m ? m[1].trim() : null;
+}
+
+function scoreMatch(zoomName, participant) {
+  const zn = normalizeName(zoomName);
+  const pn = normalizeName(participant.name);
+  const pe = participant.email.toLowerCase();
+
+  // Exact match
+  if (zn === pn) return 100;
+
+  // Email domain match
+  if (participant.email && zoomName.includes('@')) {
+    const zEmail = zoomName.toLowerCase().trim();
+    if (zEmail === pe) return 95;
+  }
+
+  // Extract paren name and try matching that
+  const parenName = extractParenName(zoomName);
+  if (parenName) {
+    const s = scoreMatch(parenName, participant);
+    if (s >= 60) return Math.min(s, 92);
+  }
+
+  // Token overlap
+  const zt = extractTokens(zoomName);
+  const pt = extractTokens(participant.name);
+  if (zt.length === 0 || pt.length === 0) return 0;
+
+  let overlap = 0;
+  for (const t of zt) {
+    if (pt.some(p => p === t || p.startsWith(t) || t.startsWith(p))) overlap++;
+  }
+  const score = (overlap / Math.max(zt.length, pt.length)) * 85;
+
+  // Email name prefix match
+  if (participant.email) {
+    const emailLocalParts = pe.split('@')[0].split('.');
+    const emailOverlap = emailLocalParts.filter(ep => zt.some(z => z.includes(ep) || ep.includes(z)));
+    if (emailOverlap.length >= 2) return Math.max(score, 75);
+  }
+
+  return score;
+}
+
+function autoMatch(dayIdx) {
+  const report = state.zoomReports[dayIdx];
+  if (!report) return [];
+
+  const minMin = parseInt(document.getElementById('minMinutes').value) || 10;
+  const matched = [];
+
+  report.attendees.forEach(att => {
+    let bestScore = 0;
+    let bestParticipant = null;
+
+    state.participants.forEach(p => {
+      const s = scoreMatch(att.zoomName, p);
+      if (s > bestScore) { bestScore = s; bestParticipant = p; }
+    });
+
+    matched.push({
+      ...att,
+      matchedTo: bestScore >= 55 ? bestParticipant : null,
+      matchScore: bestScore,
+      matchType: bestScore >= 90 ? 'auto-high' : bestScore >= 55 ? 'auto-low' : 'unknown',
+      status: att.duration <= minMin ? 'No Show' : 'Complete'
+    });
+  });
+
+  return matched;
+}
+
+// ─── STEP NAVIGATION ─────────────────────────────────────────────────────────
+function goToStep(n) {
+  [1,2,3].forEach(i => {
+    document.getElementById('step'+i).classList.toggle('active', i===n);
+    document.getElementById('tab'+i).classList.toggle('active', i===n);
+    document.getElementById('tab'+i).classList.toggle('done', i<n);
+  });
+}
+
+function proceedToMatching() {
+  if (!state.participants.length) {
+    alert('Please upload the client template first.');
+    return;
+  }
+  if (Object.keys(state.zoomReports).length === 0) {
+    alert('Please upload at least one Zoom CSV report.');
+    return;
+  }
+  state.minMinutes = parseInt(document.getElementById('minMinutes').value) || 10;
+
+  // Auto-match all days
+  state.zoomAttendees = {};
+  Object.keys(state.zoomReports).forEach(d => {
+    state.zoomAttendees[parseInt(d)] = autoMatch(parseInt(d));
+  });
+
+  renderMatchingStep();
+  goToStep(2);
+}
+
+// ─── MATCHING UI ──────────────────────────────────────────────────────────────
+function renderMatchingStep() {
+  const days = Object.keys(state.zoomAttendees).map(Number).sort();
+  state.currentMatchDay = days[0];
+
+  // Build day tabs
+  const tabsEl = document.getElementById('matchDayTabs');
+  tabsEl.innerHTML = days.map(d => {
+    const label = state.dayLabels[d] || ('Day '+(d+1));
+    return `<div class="day-tab loaded" id="mtab-${d}" onclick="switchMatchDay(${d})">${label}</div>`;
+  }).join('');
+
+  renderMatchSummaryCards();
+  renderMatchDay(state.currentMatchDay);
+}
+
+function switchMatchDay(d) {
+  state.currentMatchDay = d;
+  Object.keys(state.zoomAttendees).map(Number).forEach(i => {
+    const t = document.getElementById('mtab-'+i);
+    if (t) t.classList.toggle('active', i===d);
+  });
+  renderMatchDay(d);
+}
+
+function renderMatchSummaryCards() {
+  let totalAttendees = 0, autoHigh = 0, autoLow = 0, unknown = 0;
+  Object.values(state.zoomAttendees).forEach(atts => {
+    atts.forEach(a => {
+      totalAttendees++;
+      if (a.matchType === 'auto-high') autoHigh++;
+      else if (a.matchType === 'auto-low') autoLow++;
+      else if (a.matchType === 'unknown') unknown++;
+    });
+  });
+
+  document.getElementById('matchSummary').innerHTML = `
+    <div class="summary-card"><div class="num">${state.participants.length}</div><div class="lbl">Participants</div></div>
+    <div class="summary-card"><div class="num num-success">${autoHigh}</div><div class="lbl">Auto-Matched</div></div>
+    <div class="summary-card"><div class="num num-warn">${autoLow}</div><div class="lbl">Needs Review</div></div>
+    <div class="summary-card"><div class="num num-accent">${unknown}</div><div class="lbl">Unknown</div></div>
+  `;
+}
+
+function renderMatchDay(d) {
+  const atts = state.zoomAttendees[d] || [];
+  const label = state.dayLabels[d] || ('Day '+(d+1));
+
+  // Active tab
+  document.querySelectorAll('.day-tab').forEach(t => t.classList.remove('active'));
+  const activeTab = document.getElementById('mtab-'+d);
+  if (activeTab) activeTab.classList.add('active');
+
+  const participantOptions = state.participants.map(p =>
+    `<option value="${p.rowIndex}">${p.name}</option>`
+  ).join('');
+
+  const rows = atts.filter(a => !a.isGuest || a.matchedTo).map((att, idx) => {
+    const isBTSHost = !att.isGuest;
+    if (isBTSHost) return '';
+
+    const badge = att.matchType === 'auto-high'
+      ? `<span class="badge badge-auto">Auto ✓</span>`
+      : att.matchType === 'auto-low'
+      ? `<span class="badge badge-manual">Review</span>`
+      : `<span class="badge badge-unknown">Unknown</span>`;
+
+    const statusBadge = att.status === 'Complete'
+      ? `<span class="badge badge-complete">Complete</span>`
+      : `<span class="badge badge-noshow">No Show</span>`;
+
+    const selectVal = att.matchedTo ? att.matchedTo.rowIndex : '';
+    const selectClass = att.matchedTo ? 'matched-select' : '';
+
+    return `<tr class="${att.matchType === 'unknown' ? 'unmatched' : ''}">
+      <td style="max-width:240px;word-break:break-word">${att.zoomName}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--ink-muted)">${att.email || '—'}</td>
+      <td>${att.duration} min</td>
+      <td>${statusBadge}</td>
+      <td>${badge}</td>
+      <td>
+        <select class="${selectClass}" data-day="${d}" data-idx="${atts.indexOf(att)}" onchange="updateMatch(this, ${d}, ${atts.indexOf(att)})">
+          <option value="">— Not a participant —</option>
+          ${participantOptions}
+        </select>
+        ${selectVal !== '' ? `<script>document.currentScript.previousElementSibling.value='${selectVal}';<\/script>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('matchTableArea').innerHTML = `
+    <div class="match-table-wrapper">
+      <table class="preview-table">
+        <thead>
+          <tr>
+            <th>Zoom Display Name</th>
+            <th>Email</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th>Match</th>
+            <th>Matched Participant</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  // Set select values after DOM insert
+  atts.forEach((att, idx) => {
+    if (att.matchedTo) {
+      const sel = document.querySelector(`select[data-day="${d}"][data-idx="${idx}"]`);
+      if (sel) sel.value = att.matchedTo.rowIndex;
+    }
+  });
+
+  // Unknown/unmatched section
+  const unknown = atts.filter(a => a.isGuest && a.matchType === 'unknown' && !a.matchedTo);
+  if (unknown.length > 0) {
+    document.getElementById('unknownSection').innerHTML = `
+      <div class="unknown-section">
+        <div class="unknown-header">⚠ ${unknown.length} Unknown Zoom Attendee${unknown.length>1?'s':''} — Will Be Flagged in Report</div>
+        <div style="padding:12px 16px">
+          ${unknown.map(a => `<div style="font-size:12px;font-family:var(--mono);padding:4px 0;border-bottom:1px solid #F4E8C8;color:var(--ink-muted)">${a.zoomName}${a.email?' &lt;'+a.email+'&gt;':''} · ${a.duration} min</div>`).join('')}
+        </div>
+      </div>`;
+  } else {
+    document.getElementById('unknownSection').innerHTML = '';
+  }
+}
+
+function updateMatch(selectEl, dayIdx, attIdx) {
+  const rowIndex = selectEl.value;
+  const att = state.zoomAttendees[dayIdx][attIdx];
+  if (rowIndex === '') {
+    att.matchedTo = null;
+    att.matchType = 'unknown';
+    selectEl.classList.remove('matched-select');
+  } else {
+    const p = state.participants.find(p => p.rowIndex == rowIndex);
+    att.matchedTo = p;
+    att.matchType = 'manual';
+    selectEl.classList.add('matched-select');
+  }
+  renderMatchSummaryCards();
+}
+
+// ─── BUILD RESULTS ────────────────────────────────────────────────────────────
+function buildResults() {
+  const days = Object.keys(state.zoomAttendees).map(Number).sort();
+
+  // Reset day results
+  state.participants.forEach(p => p.dayResults = {});
+
+  days.forEach(d => {
+    const atts = state.zoomAttendees[d];
+
+    // Mark all participants as No Show initially for this day
+    state.participants.forEach(p => {
+      if (p.dayResults[d] === undefined) p.dayResults[d] = 'No Show';
+    });
+
+    // Apply Zoom data
+    atts.forEach(att => {
+      if (att.matchedTo) {
+        const p = state.participants.find(p => p.rowIndex === att.matchedTo.rowIndex);
+        if (p) {
+          p.dayResults[d] = att.status;
+        }
+      }
+    });
+  });
+}
+
+function proceedToReview() {
+  buildResults();
+  renderReviewStep();
+  goToStep(3);
+}
+
+// ─── REVIEW UI ────────────────────────────────────────────────────────────────
+function renderReviewStep() {
+  const days = Object.keys(state.zoomAttendees).map(Number).sort();
+
+  // Summary
+  let completes = 0, noShows = 0;
+  state.participants.forEach(p => {
+    days.forEach(d => {
+      if (p.dayResults[d] === 'Complete') completes++;
+      else noShows++;
+    });
+  });
+
+  // Collect all unknowns across all days
+  let allUnknowns = [];
+  days.forEach(d => {
+    (state.zoomAttendees[d] || []).forEach(a => {
+      if (a.isGuest && !a.matchedTo) {
+        allUnknowns.push({...a, day: state.dayLabels[d] || 'Day '+(d+1)});
+      }
+    });
+  });
+
+  document.getElementById('reviewSummary').innerHTML = `
+    <div class="summary-card"><div class="num">${state.participants.length}</div><div class="lbl">Participants</div></div>
+    <div class="summary-card"><div class="num num-success">${completes}</div><div class="lbl">Completions</div></div>
+    <div class="summary-card"><div class="num num-accent">${noShows}</div><div class="lbl">No Shows</div></div>
+    <div class="summary-card"><div class="num ${allUnknowns.length > 0 ? 'num-warn' : ''}">${allUnknowns.length}</div><div class="lbl">Unknowns Flagged</div></div>
+  `;
+
+  if (allUnknowns.length > 0) {
+    document.getElementById('reviewAlerts').innerHTML = `
+      <div class="alert alert-warn">
+        <span>⚠</span>
+        <span>${allUnknowns.length} unmatched Zoom attendee${allUnknowns.length>1?'s':''} will be noted in the Unknown Users tab of the exported Excel file.</span>
+      </div>`;
+  } else {
+    document.getElementById('reviewAlerts').innerHTML = `
+      <div class="alert alert-success"><span>✓</span><span>All Zoom attendees matched. No unknowns to flag.</span></div>`;
+  }
+
+  // Build review table
+  const dayHeaders = days.map(d => `<th>${state.dayLabels[d] || 'Day '+(d+1)}</th>`).join('');
+  const rows = state.participants.map(p => {
+    const dayCells = days.map(d => {
+      const status = p.dayResults[d] || '—';
+      const cls = status === 'Complete' ? 'badge-complete' : status === 'No Show' ? 'badge-noshow' : 'badge-unknown';
+      return `<td><span class="badge ${cls}">${status}</span></td>`;
+    }).join('');
+    return `<tr>
+      <td style="font-weight:600">${p.name}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--ink-muted)">${p.email}</td>
+      ${dayCells}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('reviewTableArea').innerHTML = `
+    <div class="match-table-wrapper">
+      <table>
+        <thead><tr><th>Participant</th><th>Email</th>${dayHeaders}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  // Unknown flag section
+  if (allUnknowns.length > 0) {
+    const unknownRows = allUnknowns.map(a =>
+      `<tr><td>${a.zoomName}</td><td style="font-family:var(--mono);font-size:11px">${a.email||'—'}</td><td>${a.day}</td><td>${a.duration} min</td></tr>`
+    ).join('');
+    document.getElementById('unknownFlagSection').innerHTML = `
+      <div class="unknown-section" style="margin-top:24px">
+        <div class="unknown-header">⚠ Unknown Zoom Attendees — Will Be Flagged to Client</div>
+        <div class="match-table-wrapper" style="border:none">
+          <table>
+            <thead><tr><th>Zoom Name</th><th>Email</th><th>Day</th><th>Duration</th></tr></thead>
+            <tbody>${unknownRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  } else {
+    document.getElementById('unknownFlagSection').innerHTML = '';
+  }
+}
+
+// ─── EXPORT ───────────────────────────────────────────────────────────────────
+function exportExcel() {
+  showLoading('Building Excel report...');
+  setTimeout(() => {
+    try {
+      doExport();
+    } catch(e) {
+      hideLoading();
+      alert('Export error: ' + e.message);
+      console.error(e);
+    }
+  }, 100);
+}
+
+function doExport() {
+  // Load original template workbook
+  const days = Object.keys(state.zoomAttendees).map(Number).sort();
+
+  // We'll recreate the workbook structure from the original template
+  const wb = XLSX.utils.book_new();
+
+  // ── Sheet 1: Attendance (matching client template format) ──
+  const templateRows = state.templateRows;
+  const outRows = JSON.parse(JSON.stringify(templateRows)); // deep copy
+
+  // Write back attendance values
+  state.participants.forEach(p => {
+    const row = outRows[p.rowIndex];
+    if (!row) return;
+    days.forEach((d, i) => {
+      const col = state.templateDayCols[i]?.col;
+      if (col !== undefined) {
+        row[col] = p.dayResults[d] || 'No Show';
+      }
+    });
+  });
+
+  const ws1 = XLSX.utils.aoa_to_sheet(outRows);
+
+  // Style header row (bold) via cell metadata — basic
+  ws1['!cols'] = [
+    {wch:10},{wch:40},{wch:18},{wch:18},{wch:50},{wch:35},{wch:35},
+    ...days.map(()=>({wch:18}))
+  ];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Attendance');
+
+  // ── Sheet 2: Unknown Attendees ──
+  let allUnknowns = [];
+  days.forEach(d => {
+    (state.zoomAttendees[d] || []).forEach(a => {
+      if (a.isGuest && !a.matchedTo) {
+        allUnknowns.push({
+          'Zoom Display Name': a.zoomName,
+          'Email in Zoom': a.email || '',
+          'Day': state.dayLabels[d] || 'Day '+(d+1),
+          'Duration (min)': a.duration,
+          'Note': 'Could not be matched to a registered participant'
+        });
+      }
+    });
+  });
+
+  const ws2Data = allUnknowns.length > 0 ? allUnknowns : [{'Note': 'No unknown attendees — all Zoom participants were matched.'}];
+  const ws2 = XLSX.utils.json_to_sheet(ws2Data);
+  ws2['!cols'] = [{wch:40},{wch:35},{wch:10},{wch:14},{wch:55}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Unknown Attendees');
+
+  // ── Sheet 3: Zoom Attendance Detail ──
+  const detailRows = [];
+  days.forEach(d => {
+    (state.zoomAttendees[d] || []).forEach(a => {
+      if (!a.isGuest) return;
+      detailRows.push({
+        'Day': state.dayLabels[d] || 'Day '+(d+1),
+        'Zoom Display Name': a.zoomName,
+        'Email': a.email || '',
+        'Duration (min)': a.duration,
+        'Status': a.status,
+        'Matched To': a.matchedTo ? a.matchedTo.name : 'UNKNOWN',
+        'Match Type': a.matchType === 'auto-high' ? 'Auto' : a.matchType === 'manual' ? 'Manual' : 'Unknown'
+      });
+    });
+  });
+  if (detailRows.length > 0) {
+    const ws3 = XLSX.utils.json_to_sheet(detailRows);
+    ws3['!cols'] = [{wch:10},{wch:40},{wch:35},{wch:14},{wch:12},{wch:35},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Zoom Detail');
+  }
+
+  const title = (document.getElementById('sessionTitle').value || 'Attendance').replace(/[^a-zA-Z0-9 _-]/g,'');
+  const date = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `${title} - ${date}.xlsx`);
+  hideLoading();
+}
+
+function showLoading(msg) {
+  document.getElementById('loadingMsg').textContent = msg;
+  document.getElementById('loadingOverlay').classList.add('show');
+}
+function hideLoading() {
+  document.getElementById('loadingOverlay').classList.remove('show');
+}
+
+// Init: hide extra zoom zones
+window.addEventListener('DOMContentLoaded', () => {
+  // Default to 4 visible zones
+  for (let i = 0; i < 4; i++) {
+    const zone = document.getElementById('zone-zoom-' + i);
+    if (zone) zone.style.display = '';
+  }
+});
+</script>
+</body>
+</html>
