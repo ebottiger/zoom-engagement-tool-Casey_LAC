@@ -983,9 +983,11 @@ function renderMatchDay(d) {
     `<option value="${p.rowIndex}">${p.name}</option>`
   ).join('');
 
-  const rows = atts.filter(a => !a.isGuest || a.matchedTo).map((att, idx) => {
-    const isBTSHost = !att.isGuest;
-    if (isBTSHost) return '';
+  // Show all attendees except BTS hosts (isGuest === false means BTS staff)
+  const visibleAtts = atts.filter(a => a.isGuest !== false);
+
+  const rows = visibleAtts.map((att) => {
+    const realIdx = atts.indexOf(att);
 
     const badge = att.matchType === 'auto-high'
       ? `<span class="badge badge-auto">Auto ✓</span>`
@@ -997,7 +999,6 @@ function renderMatchDay(d) {
       ? `<span class="badge badge-complete">Complete</span>`
       : `<span class="badge badge-noshow">No Show</span>`;
 
-    const selectVal = att.matchedTo ? att.matchedTo.rowIndex : '';
     const selectClass = att.matchedTo ? 'matched-select' : '';
 
     return `<tr class="${att.matchType === 'unknown' ? 'unmatched' : ''}">
@@ -1007,11 +1008,10 @@ function renderMatchDay(d) {
       <td>${statusBadge}</td>
       <td>${badge}</td>
       <td>
-        <select class="${selectClass}" data-day="${d}" data-idx="${atts.indexOf(att)}" onchange="updateMatch(this, ${d}, ${atts.indexOf(att)})">
+        <select class="${selectClass}" data-day="${d}" data-idx="${realIdx}" onchange="updateMatch(this, ${d}, ${realIdx})">
           <option value="">— Not a participant —</option>
           ${participantOptions}
         </select>
-        ${selectVal !== '' ? `<script>document.currentScript.previousElementSibling.value='${selectVal}';<\/script>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -1043,7 +1043,7 @@ function renderMatchDay(d) {
   });
 
   // Unknown/unmatched section
-  const unknown = atts.filter(a => a.isGuest && a.matchType === 'unknown' && !a.matchedTo);
+  const unknown = atts.filter(a => a.isGuest !== false && a.matchType === 'unknown' && !a.matchedTo);
   if (unknown.length > 0) {
     document.getElementById('unknownSection').innerHTML = `
       <div class="unknown-section">
@@ -1123,7 +1123,7 @@ function renderReviewStep() {
   let allUnknowns = [];
   days.forEach(d => {
     (state.zoomAttendees[d] || []).forEach(a => {
-      if (a.isGuest && !a.matchedTo) {
+      if (a.isGuest !== false && !a.matchedTo) {
         allUnknowns.push({...a, day: state.dayLabels[d] || 'Day '+(d+1)});
       }
     });
@@ -1240,7 +1240,7 @@ function doExport() {
   let allUnknowns = [];
   days.forEach(d => {
     (state.zoomAttendees[d] || []).forEach(a => {
-      if (a.isGuest && !a.matchedTo) {
+      if (a.isGuest !== false && !a.matchedTo) {
         allUnknowns.push({
           'Zoom Display Name': a.zoomName,
           'Email in Zoom': a.email || '',
@@ -1261,7 +1261,7 @@ function doExport() {
   const detailRows = [];
   days.forEach(d => {
     (state.zoomAttendees[d] || []).forEach(a => {
-      if (!a.isGuest) return;
+      if (a.isGuest === false) return;
       detailRows.push({
         'Day': state.dayLabels[d] || 'Day '+(d+1),
         'Zoom Display Name': a.zoomName,
