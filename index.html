@@ -1286,7 +1286,7 @@ function doExport() {
 
   // ── Sheet 1: Load the original template binary and ONLY write attendance values
   // into existing cells. Row 1 is never touched so bold/formatting is preserved exactly.
-  const wb = XLSX.read(new Uint8Array(state.templateArrayBuffer), { type: 'array', cellStyles: true });
+  const wb = XLSX.read(new Uint8Array(state.templateArrayBuffer), { type: 'array' });
   const sheetName = wb.SheetNames[0];
   const ws = wb.Sheets[sheetName];
 
@@ -1368,7 +1368,17 @@ function doExport() {
     : (document.getElementById('sessionTitle').value || 'Attendance');
   const filename = origName.replace(/[^a-zA-Z0-9 _()#-]/g, '').trim() + '_Completed.xlsx';
 
-  XLSX.writeFile(wb, filename, { cellStyles: true, bookType: 'xlsx' });
+  // Use XLSX.write -> Uint8Array -> Blob to avoid SheetJS charCodeAt crash on free tier
+  const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   hideLoading();
 }
 function showLoading(msg) {
