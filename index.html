@@ -675,7 +675,8 @@ function handleZoomUpload(dayIdx, input) {
 function parseTemplate(file) {
   const reader = new FileReader();
   reader.onload = e => {
-    const wb = XLSX.read(e.target.result, {type:'binary'});
+    state.templateArrayBuffer = e.target.result; // store ArrayBuffer for faithful export
+    const wb = XLSX.read(e.target.result, {type:'array', cellStyles: true});
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
 
@@ -742,7 +743,7 @@ function parseTemplate(file) {
     state.templateReady = true;
     console.log('Template parsed:', state.participants.length, 'participants,', state.dayCount, 'days');
   };
-  reader.readAsBinaryString(file);
+  reader.readAsArrayBuffer(file);
 }
 
 function parseRoster(file) {
@@ -773,47 +774,91 @@ function parseRoster(file) {
   else reader.readAsBinaryString(file);
 }
 
+// RFC-4180 compliant CSV parser — handles quoted fields with embedded commas and CRLF
+function parseCSVLine(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const t = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (t[i+1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        row.push(field.trim());
+        field = '';
+      } else if (ch === '\n') {
+        row.push(field.trim());
+        field = '';
+        if (row.some(c => c !== '')) rows.push(row);
+        row = [];
+      } else {
+        field += ch;
+      }
+    }
+  }
+  if (field !== '' || row.length > 0) {
+    row.push(field.trim());
+    if (row.some(c => c !== '')) rows.push(row);
+  }
+  return rows;
+}
+
 function parseZoomCSV(dayIdx, file) {
   return new Promise((resolve) => {
-  const reader = new FileReader();
-  reader.onload = e => {
-    const text = e.target.result;
-    const lines = text.split('\n');
-    // Find the data rows — Zoom CSVs have a meta row, then blank, then participant rows
-    // Row 0: Topic, ID, Host...
-    // Row 1: Name (original name), Email, Total duration...
-    // Row 2+: participants
-    let headerLineIdx = -1;
-    lines.forEach((line, i) => {
-      if (line.includes('Total duration') || line.includes('total duration')) headerLineIdx = i;
-    });
-    if (headerLineIdx === -1) headerLineIdx = 1;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const rows = parseCSVLine(e.target.result);
+      console.log('Day', dayIdx, '- total CSV rows parsed:', rows.length);
+      if (rows.length > 0) console.log('Row 0:', rows[0]);
+      if (rows.length > 1) console.log('Row 1:', rows[1]);
+      if (rows.length > 3) console.log('Row 3:', rows[3]);
 
-    const metaLine = lines[0].split(',');
-    let meetingDuration = null;
-    // Try to parse meeting duration from meta row
-    const durationField = metaLine.find(f => !isNaN(parseInt(f.trim())) && parseInt(f.trim()) > 30 && parseInt(f.trim()) < 1440);
-    if (durationField) meetingDuration = parseInt(durationField.trim());
+      // Find the participant header row: contains "name" and "duration"
+      let headerRowIdx = -1;
+      rows.forEach((r, i) => {
+        const r0 = (r[0] || '').toLowerCase();
+        const r2 = (r[2] || '').toLowerCase();
+        if (r0.includes('name') && r2.includes('duration')) headerRowIdx = i;
+      });
+      if (headerRowIdx === -1) headerRowIdx = 3;
+      console.log('Day', dayIdx, '- header row at index:', headerRowIdx);
 
-    const attendees = [];
-    for (let i = headerLineIdx + 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const parts = line.split(',').map(s => s.trim().replace(/^"|"$/g,''));
-      const zoomName = parts[0];
-      const email = parts[1] || '';
-      const duration = parseInt(parts[2]) || 0;
-      const isGuest = (parts[3] || '').toLowerCase().trim() === 'yes';
-      if (!zoomName || zoomName.toLowerCase() === 'name (original name)') continue;
-      attendees.push({ zoomName, email, duration, isGuest });
-    }
+      // Meeting duration from row index 1, column 3
+      let meetingDuration = null;
+      if (rows[1] && rows[1][3]) {
+        const d = parseInt(rows[1][3]);
+        if (!isNaN(d) && d > 0) meetingDuration = d;
+      }
 
-    state.zoomReports[dayIdx] = { attendees, meetingDuration, file };
-    console.log('Zoom day', dayIdx, ':', attendees.length, 'attendees');
-    resolve();
-  };
-  reader.readAsText(file);
-  }); // end Promise
+      const attendees = [];
+      for (let i = headerRowIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[0]) continue;
+        const zoomName = r[0].trim();
+        if (!zoomName) continue;
+        const email = (r[1] || '').trim();
+        const duration = parseInt(r[2]) || 0;
+        const guestVal = (r[3] || '').toLowerCase().trim();
+        const isGuest = guestVal !== 'no';
+        attendees.push({ zoomName, email, duration, isGuest });
+      }
+
+      console.log('Day', dayIdx, '- attendees found:', attendees.length, attendees.slice(0,3).map(a => a.zoomName));
+      state.zoomReports[dayIdx] = { attendees, meetingDuration, file };
+      resolve();
+    };
+    reader.readAsText(file);
+  });
 }
 
 // ─── NAME MATCHING ────────────────────────────────────────────────────────────
@@ -1004,9 +1049,11 @@ function renderMatchDay(d) {
   const activeTab = document.getElementById('mtab-'+d);
   if (activeTab) activeTab.classList.add('active');
 
-  const participantOptions = state.participants.map(p =>
-    `<option value="${p.rowIndex}">${p.name}</option>`
-  ).join('');
+  const participantOptions =
+    `<option value="__bts_coach__">— BTS Coach —</option>` +
+    state.participants.map(p =>
+      `<option value="${p.rowIndex}">${p.name}</option>`
+    ).join('');
 
   // Show all attendees except BTS hosts (isGuest === false means BTS staff)
   const visibleAtts = atts.filter(a => a.isGuest !== false);
@@ -1068,7 +1115,7 @@ function renderMatchDay(d) {
   });
 
   // Unknown/unmatched section
-  const unknown = atts.filter(a => a.isGuest !== false && a.matchType === 'unknown' && !a.matchedTo);
+  const unknown = atts.filter(a => a.isGuest !== false && a.matchType === 'unknown' && !a.matchedTo && !a.isBTSCoach);
   if (unknown.length > 0) {
     document.getElementById('unknownSection').innerHTML = `
       <div class="unknown-section">
@@ -1089,9 +1136,14 @@ function updateMatch(selectEl, dayIdx, attIdx) {
     att.matchedTo = null;
     att.matchType = 'unknown';
     selectEl.classList.remove('matched-select');
+  } else if (rowIndex === '__bts_coach__') {
+    att.matchedTo = null;
+    att.isBTSCoach = true;
+    att.matchType = 'bts_coach';
+    selectEl.classList.add('matched-select');
   } else {
-    const p = state.participants.find(p => p.rowIndex == rowIndex);
-    att.matchedTo = p;
+    att.matchedTo = state.participants.find(p => p.rowIndex == rowIndex);
+    att.isBTSCoach = false;
     att.matchType = 'manual';
     selectEl.classList.add('matched-select');
   }
@@ -1148,7 +1200,7 @@ function renderReviewStep() {
   let allUnknowns = [];
   days.forEach(d => {
     (state.zoomAttendees[d] || []).forEach(a => {
-      if (a.isGuest !== false && !a.matchedTo) {
+      if (a.isGuest !== false && !a.matchedTo && !a.isBTSCoach) {
         allUnknowns.push({...a, day: state.dayLabels[d] || 'Day '+(d+1)});
       }
     });
@@ -1230,42 +1282,39 @@ function exportExcel() {
 }
 
 function doExport() {
-  // Load original template workbook
   const days = Object.keys(state.zoomAttendees).map(Number).sort();
 
-  // We'll recreate the workbook structure from the original template
-  const wb = XLSX.utils.book_new();
+  // ── Sheet 1: Load the original template binary and ONLY write attendance values
+  // into existing cells. Row 1 is never touched so bold/formatting is preserved exactly.
+  const wb = XLSX.read(state.templateBinary, { type: 'binary', cellStyles: true });
+  const sheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
 
-  // ── Sheet 1: Attendance (matching client template format) ──
-  const templateRows = state.templateRows;
-  const outRows = JSON.parse(JSON.stringify(templateRows)); // deep copy
-
-  // Write back attendance values
   state.participants.forEach(p => {
-    const row = outRows[p.rowIndex];
-    if (!row) return;
     days.forEach((d, i) => {
-      const col = state.templateDayCols[i]?.col;
-      if (col !== undefined) {
-        row[col] = p.dayResults[d] || 'No Show';
+      const dayCol = state.templateDayCols[i];
+      if (!dayCol) return;
+      // XLSX uses 0-based internally; encode_cell takes {r, c} both 0-based
+      const addr = XLSX.utils.encode_cell({ r: p.rowIndex, c: dayCol.col });
+      const val = p.dayResults[d] || 'No Show';
+      if (ws[addr]) {
+        // Preserve the existing cell object (keeps styles) — only update value
+        ws[addr].v = val;
+        ws[addr].t = 's';
+        delete ws[addr].r; // remove cached rich-text so plain value renders
+        delete ws[addr].h; // remove cached html
+        delete ws[addr].w; // remove cached formatted text
+      } else {
+        ws[addr] = { v: val, t: 's' };
       }
     });
   });
 
-  const ws1 = XLSX.utils.aoa_to_sheet(outRows);
-
-  // Style header row (bold) via cell metadata — basic
-  ws1['!cols'] = [
-    {wch:10},{wch:40},{wch:18},{wch:18},{wch:50},{wch:35},{wch:35},
-    ...days.map(()=>({wch:18}))
-  ];
-  XLSX.utils.book_append_sheet(wb, ws1, 'Attendance');
-
-  // ── Sheet 2: Unknown Attendees ──
+  // ── Sheet 2: Unknown Attendees
   let allUnknowns = [];
   days.forEach(d => {
     (state.zoomAttendees[d] || []).forEach(a => {
-      if (a.isGuest !== false && !a.matchedTo) {
+      if (a.isGuest !== false && !a.matchedTo && !a.isBTSCoach) {
         allUnknowns.push({
           'Zoom Display Name': a.zoomName,
           'Email in Zoom': a.email || '',
@@ -1276,13 +1325,18 @@ function doExport() {
       }
     });
   });
-
-  const ws2Data = allUnknowns.length > 0 ? allUnknowns : [{'Note': 'No unknown attendees — all Zoom participants were matched.'}];
+  const ws2Data = allUnknowns.length > 0
+    ? allUnknowns
+    : [{ 'Note': 'No unknown attendees — all Zoom participants were matched.' }];
   const ws2 = XLSX.utils.json_to_sheet(ws2Data);
   ws2['!cols'] = [{wch:40},{wch:35},{wch:10},{wch:14},{wch:55}];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Unknown Attendees');
+  if (wb.SheetNames.includes('Unknown Attendees')) {
+    wb.Sheets['Unknown Attendees'] = ws2;
+  } else {
+    XLSX.utils.book_append_sheet(wb, ws2, 'Unknown Attendees');
+  }
 
-  // ── Sheet 3: Zoom Attendance Detail ──
+  // ── Sheet 3: Zoom Attendance Detail
   const detailRows = [];
   days.forEach(d => {
     (state.zoomAttendees[d] || []).forEach(a => {
@@ -1293,23 +1347,30 @@ function doExport() {
         'Email': a.email || '',
         'Duration (min)': a.duration,
         'Status': a.status,
-        'Matched To': a.matchedTo ? a.matchedTo.name : 'UNKNOWN',
-        'Match Type': a.matchType === 'auto-high' ? 'Auto' : a.matchType === 'manual' ? 'Manual' : 'Unknown'
+        'Matched To': a.matchedTo ? a.matchedTo.name : (a.isBTSCoach ? 'BTS Coach' : 'UNKNOWN'),
+        'Match Type': a.matchType === 'auto-high' ? 'Auto' : a.matchType === 'manual' ? 'Manual' : a.matchType === 'bts_coach' ? 'BTS Coach' : 'Unknown'
       });
     });
   });
   if (detailRows.length > 0) {
     const ws3 = XLSX.utils.json_to_sheet(detailRows);
     ws3['!cols'] = [{wch:10},{wch:40},{wch:35},{wch:14},{wch:12},{wch:35},{wch:12}];
-    XLSX.utils.book_append_sheet(wb, ws3, 'Zoom Detail');
+    if (wb.SheetNames.includes('Zoom Detail')) {
+      wb.Sheets['Zoom Detail'] = ws3;
+    } else {
+      XLSX.utils.book_append_sheet(wb, ws3, 'Zoom Detail');
+    }
   }
 
-  const title = (document.getElementById('sessionTitle').value || 'Attendance').replace(/[^a-zA-Z0-9 _-]/g,'');
-  const date = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, `${title} - ${date}.xlsx`);
+  // ── Filename: original template name + _Completed
+  const origName = state.templateFile
+    ? state.templateFile.name.replace(/\.xlsx?$/i, '')
+    : (document.getElementById('sessionTitle').value || 'Attendance');
+  const filename = origName.replace(/[^a-zA-Z0-9 _()#-]/g, '').trim() + '_Completed.xlsx';
+
+  XLSX.writeFile(wb, filename, { cellStyles: true, bookType: 'xlsx' });
   hideLoading();
 }
-
 function showLoading(msg) {
   document.getElementById('loadingMsg').textContent = msg;
   document.getElementById('loadingOverlay').classList.add('show');
