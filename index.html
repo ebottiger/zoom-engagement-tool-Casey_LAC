@@ -630,16 +630,18 @@
 <script>
 // ─── STATE ────────────────────────────────────────────────────────────────────
 let state = {
-  template: null,       // parsed template data
-  roster: null,         // optional roster
-  zoomReports: {},      // day index -> parsed zoom data
-  participants: [],     // [{name, email, rowIndex, dayResults:{}}]
-  dayLabels: [],        // ['Day 1', 'Day 2', ...]
+  template: null,
+  roster: null,
+  zoomReports: {},
+  participants: [],
+  dayLabels: [],
   dayCount: 0,
   minMinutes: 10,
-  // matching
-  zoomAttendees: {},    // day -> [{zoomName, email, duration, matchedTo, matchType}]
+  zoomAttendees: {},
   currentMatchDay: 0,
+  // Promise tracking for async file reads
+  templateReady: false,
+  zoomPromises: {},   // dayIdx -> Promise
 };
 
 // ─── FILE HANDLING ────────────────────────────────────────────────────────────
@@ -652,6 +654,7 @@ function handleFileUpload(type, input) {
   fn.textContent = '✓ ' + file.name;
 
   if (type === 'template') {
+    state.templateReady = false;
     parseTemplate(file);
   } else if (type === 'roster') {
     parseRoster(file);
@@ -665,7 +668,8 @@ function handleZoomUpload(dayIdx, input) {
   const fn = document.getElementById('fn-zoom-' + dayIdx);
   zone.classList.add('filled');
   fn.textContent = '✓ ' + file.name;
-  parseZoomCSV(dayIdx, file);
+  // Store a Promise so proceedToMatching can await all files
+  state.zoomPromises[dayIdx] = parseZoomCSV(dayIdx, file);
 }
 
 function parseTemplate(file) {
@@ -735,6 +739,7 @@ function parseTemplate(file) {
       if (zone) zone.style.display = i < state.dayCount ? '' : 'none';
     }
 
+    state.templateReady = true;
     console.log('Template parsed:', state.participants.length, 'participants,', state.dayCount, 'days');
   };
   reader.readAsBinaryString(file);
@@ -769,6 +774,7 @@ function parseRoster(file) {
 }
 
 function parseZoomCSV(dayIdx, file) {
+  return new Promise((resolve) => {
   const reader = new FileReader();
   reader.onload = e => {
     const text = e.target.result;
@@ -804,8 +810,10 @@ function parseZoomCSV(dayIdx, file) {
 
     state.zoomReports[dayIdx] = { attendees, meetingDuration, file };
     console.log('Zoom day', dayIdx, ':', attendees.length, 'attendees');
+    resolve();
   };
   reader.readAsText(file);
+  }); // end Promise
 }
 
 // ─── NAME MATCHING ────────────────────────────────────────────────────────────
@@ -905,15 +913,32 @@ function goToStep(n) {
   });
 }
 
-function proceedToMatching() {
-  if (!state.participants.length) {
-    alert('Please upload the client template first.');
+async function proceedToMatching() {
+  if (!state.templateReady || !state.participants.length) {
+    alert('Please wait — the client template is still loading, or has not been uploaded.');
     return;
   }
-  if (Object.keys(state.zoomReports).length === 0) {
+  if (Object.keys(state.zoomPromises).length === 0) {
     alert('Please upload at least one Zoom CSV report.');
     return;
   }
+
+  // Wait for ALL zoom files to finish reading
+  const btn = document.getElementById('btn-proceed');
+  btn.disabled = true;
+  btn.textContent = 'Loading files…';
+  try {
+    await Promise.all(Object.values(state.zoomPromises));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Continue to Matching →';
+  }
+
+  if (Object.keys(state.zoomReports).length === 0) {
+    alert('No Zoom data was loaded. Please re-upload the CSV files.');
+    return;
+  }
+
   state.minMinutes = parseInt(document.getElementById('minMinutes').value) || 10;
 
   // Auto-match all days
